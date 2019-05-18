@@ -1,0 +1,87 @@
+library(xlsx)
+library(spdep)
+library(MASS) ###求逆的时候用
+theta=0.3
+n=29  #省份
+t=15  #年份
+num=n*t
+#long lat  读取经纬度
+location<-read.xlsx("经纬度.xlsx",sheetName="1",header=T,encoding='UTF-8')
+location=apply(location,2,as.numeric)
+lat<-location[,2]
+long<-location[,3]
+##将经纬度信息重复，当作有很多个地方，2000年的北京与2001年的背景不是同一个地方，只是经纬度为0
+varlat<-kronecker(lat,matrix(1,t,1))
+varlong<-kronecker(long,matrix(1,t,1))
+##权重矩阵
+weight <- matrix(0, nrow=num, ncol=num)
+for (i in 1:num){
+    for(j in 1:num){
+        weight[i,j] = 1/sqrt(2*pi)*exp(-0.5*theta2^2*((varlong[i]-varlong[j])^2+(varlat[i]-varlat[j])^2))
+    }
+}
+
+
+####数据处理，加入虚拟变量，M1代表个体效应的系数,M2表示时间效应的系数（恰好与变系数函数的系数是一样的）
+M1<-matrix(0,num,n)
+M2<-matrix(0,num,t)
+for (i in 1:n){
+	for (j in 1:t){
+	M1[(i-1)*t+j,i]=1
+}
+}
+for (i in 1:num){
+	if(i%%t >0){
+	M2[i,i%%t]=1}
+	if(i%%t ==0){
+	M2[i,t]=1
+}
+}
+
+###系数表达式前面那个大矩阵
+L<-ginv(t(M2)%*%diag(weight[1,])%*%M2)%*%t(M2)%*%diag(weight[1,])
+for (i in 2:n){
+	L<-rbind(L,ginv(t(M2)%*%diag(weight[(i-1)*t+1,])%*%M2)%*%t(M2)%*%diag(weight[(i-1)*t+1,]))
+}
+
+##读取数据矩阵
+y<-read.xlsx("数据.xlsx",sheetName="unem",header=T,encoding='UTF-8')
+y=t(apply(y,2,as.numeric))
+jiuye<-read.xlsx("数据.xlsx",sheetName="eir",header=T,encoding='UTF-8')
+jiuye=t(apply(jiuye,2,as.numeric))
+gongzi<-read.xlsx("数据.xlsx",sheetName="earn",header=T,encoding='UTF-8')
+gongzi=t(apply(gongzi,2,as.numeric))
+jiaoyu<-read.xlsx("数据.xlsx",sheetName="edu",header=T,encoding='UTF-8')
+jiaoyu<-t(apply(jiaoyu,2,as.numeric))
+chanye<-read.xlsx("数据.xlsx",sheetName="oc",header=T,encoding='UTF-8')
+chanye<-t(apply(chanye,2,as.numeric))
+midu<-read.xlsx("数据.xlsx",sheetName="den",header=T,encoding='UTF-8')
+midu<-t(apply(midu,2,as.numeric))
+
+##整理数据，行的转置为列的，再按省份竖成一列
+y<-sapply(y,unlist)
+dim(y)<-c(num,1)
+jiuye<-sapply(jiuye,unlist)
+dim(jiuye)<-c(num,1)
+gongzi<-sapply(gongzi,unlist)
+dim(gongzi)<-c(num,1)
+jiaoyu<-sapply(jiaoyu,unlist)
+dim(jiaoyu)<-c(num,1)
+chanye<-sapply(chanye,unlist)
+dim(chanye)<-c(num,1)
+midu<-sapply(midu,unlist)
+dim(midu)<-c(num,1)
+xx<-cbind(jiuye,gongzi,jiaoyu,chanye,midu)
+
+####普通估计
+xishu1<-cbind(xx,M1,M2)
+guji1<-ginv(t(xishu1)%*%xishu1)%*%t(xishu1)%*%y
+bhat1<-guji1[1:5,]
+
+##GWR估计
+betahat2<-ginv(t(xx)%*%t(diag(num)-L)%*%(diag(num)-L)%*%xx)%*%t(xx)%*%t(diag(num)-L)%*%(diag(num)-L)%*%y
+lamdahat2<-L%*%(y-xx%*%betahat2)
+bhat2<-betahat2[1:5,]
+##残差平方和
+cancha1<-t(xishu1%*%guji1-y)%*%(xishu1%*%guji1-y)
+cancha2<-t(xx%*%bhat2+lamdahat2-y)%*%(xx%*%bhat2+lamdahat2-y)

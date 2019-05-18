@@ -1,0 +1,420 @@
+####多项式
+library(MASS) ###求逆的时候用
+m=8
+n=m*m  ###地点
+T=10   ###时间（不涉及变系数，所以可以设置
+k=1000 ##循环次数
+l=4  ##beta的维度
+
+num=n*T
+
+###个体效应(保证可识别，求和为0，所以先生成n-1个，再用0减)
+alpha<-matrix(0,num,1)
+c=matrix(rnorm(n,0,1),nrow=n,ncol=1)
+##cc<-as.matrix(0-sum(c))
+##c<-rbind(c,cc)
+for (i in 1:n){
+	for (t in 1:T){
+		alpha[t+(i-1)*T]=c[i]
+	}
+}
+
+###时间效应(保证可识别，求和为0，所以先生成T-1个，再用0减)
+lamda<-matrix(0,num,1)
+c<-matrix(rnorm(T,0,0.5),nrow=T,ncol=1)
+##cc<-as.matrix(0-sum(c))
+##c<-rbind(c,cc)
+for (i in 1:n){
+	for (t in 1:T){
+		lamda[t+(i-1)*T]=c[t]
+	}
+}
+
+###第一种生成方式个体效应与时间效应的综合效应真值
+zonghe1<-alpha+lamda
+
+##格子点坐标
+lat <- as.matrix(c(1:n-1)%/%m)
+long<- as.matrix(c(1:n-1)%%m)
+
+##把每个格子点重复T次，为变系数部分的估计做准备
+varlat<-kronecker(lat,matrix(1,T,1))
+varlong<-kronecker(long,matrix(1,T,1))
+
+####变系数部分的设定
+alpha1<-as.matrix(1/6*(lat+long))
+alpha2<-as.matrix(4*sin(1/12*pi*lat))
+alpha0<-as.matrix(2/(sqrt(n)-1)*sqrt(((sqrt(n)-1)/2-abs((sqrt(n)-1)/2-lat))*((sqrt(n)-1)/2-abs((sqrt(n)-1)/2-long))))
+
+###对alpha0要中心化，要把均值加入到截距项中
+##malpha0<-mean(alpha0)
+##alpha0<-alpha0-malpha0
+com<-cbind(alpha0,alpha1,alpha2)
+
+####数据处理，加入虚拟变量，M1代表个体效应的系数,M2表示时间效应的系数
+M1<-matrix(0,num,n)
+M2<-matrix(0,num,T)
+for (i in 1:n){
+	for (j in 1:T){
+	M1[(i-1)*T+j,i]=1
+}
+}
+for (i in 1:num){
+	if(i%%T >0){
+	M2[i,i%%T]=1}
+	if(i%%T ==0){
+	M2[i,T]=1
+}
+}
+
+###生成每一个个体的多项式系数矩阵P
+P<-matrix(0,T,3)
+for (t in 1:T){
+	P[t,1]=1
+	P[t,2]=t
+	P[t,3]=t*t
+}
+
+####生成多项式的系数矩阵Q
+Q<-matrix(0,num,3)
+for (i in 1:n){
+	for (t in 1:T){
+		Q[(i-1)*T+t,1]=1
+		Q[(i-1)*T+t,2]=t
+		Q[(i-1)*T+t,3]=t*t
+	}
+}
+
+###第二种生成方式多项式部分的真值
+zonghe2<-as.matrix(sapply(t(com%*%t(P)),unlist))
+
+
+###（第一个角标为1表示是双因素生成数据方式，角标为2表示是新模型生成的方式）
+###第二个角标为1表示是在双因素模型设定下的估计结果，第二个角标是在新模型设定下的估计结果）
+
+
+##第一种数据生成方式的估计结果
+beta11<-matrix(0,l,k)##原模型设定下beta的普通估计
+comb11<-matrix(0,num,k)##原模型设定下的综合效应的普通估计
+
+beta12<-matrix(0,l,k)##新模型设定下beta的普通估计
+comb12<-matrix(0,num,k)##新模型设定下的综合效应的GWR估计
+
+##第二种数据生成方式的估计结果
+
+beta21<-matrix(0,l,k)##原模型设定下beta的普通估计
+comb21<-matrix(0,num,k)##原模型设定下的综合效应的普通估计
+
+
+beta22<-matrix(0,l,k)##新模型设定下beta的GWR估计
+comb22<-matrix(0,num,k)##新模型设定下的综合效应的GWR估计
+
+
+
+##系数设定为4维的，真值为（2,3,6,13），再加上常数项2.5###
+beta1<-matrix(c(2,3,6,13),nrow=l,ncol=1)
+beta2<-matrix(c(2,3,6,13),nrow=l,ncol=1)
+
+
+theta1=0
+weight1 <- matrix(0, nrow=num, ncol=num)
+for (i in 1:num){
+            for(j in 1:num){
+                weight1[i,j] = 1/sqrt(2*pi)*exp(-0.5*theta1^2*((varlong[i]-varlong[j])^2+(varlat[i]-varlat[j])^2))
+            }
+        }
+L1<-P%*%ginv(t(Q)%*%diag(weight1[1,])%*%Q)%*%t(Q)%*%diag(weight1[1,])
+for (i in 2:n){
+	L1<-rbind(L1,P%*%ginv(t(Q)%*%diag(weight1[(i-1)*T+1,])%*%Q)%*%t(Q)%*%diag(weight1[(i-1)*T+1,]))
+	
+}
+LL1<-ginv(t(Q)%*%diag(weight1[1,])%*%Q)%*%t(Q)%*%diag(weight1[1,])
+for (i in 2:n){
+	LL1<-rbind(LL1,ginv(t(Q)%*%diag(weight1[(i-1)*T+1,])%*%Q)%*%t(Q)%*%diag(weight1[(i-1)*T+1,]))
+	
+}
+
+theta2=2.5
+weight2 <- matrix(0, nrow=num, ncol=num)
+for (i in 1:num){
+            for(j in 1:num){
+                weight2[i,j] = 1/sqrt(2*pi)*exp(-0.5*theta2^2*((varlong[i]-varlong[j])^2+(varlat[i]-varlat[j])^2))
+            }
+        }
+L2<-P%*%ginv(t(Q)%*%diag(weight2[1,])%*%Q)%*%t(Q)%*%diag(weight2[1,])
+for (i in 2:n){
+	L2<-rbind(L2,P%*%ginv(t(Q)%*%diag(weight2[(i-1)*T+1,])%*%Q)%*%t(Q)%*%diag(weight2[(i-1)*T+1,]))
+	
+}
+LL2<-ginv(t(Q)%*%diag(weight2[1,])%*%Q)%*%t(Q)%*%diag(weight2[1,])
+for (i in 2:n){
+	LL2<-rbind(LL2,ginv(t(Q)%*%diag(weight2[(i-1)*T+1,])%*%Q)%*%t(Q)%*%diag(weight2[(i-1)*T+1,]))
+	
+}
+
+####循环k=1000次
+for (jishu in 1:k)
+{
+
+###四个自变量，两个正态分布，两个个均匀分布,##
+xx<-matrix(c(rnorm(num, 10, 1), runif(num, 2, 4),rnorm(num, 1, 1), runif(num, -1, 1)), nrow=num, ncol=4)
+
+##将自变量与一列1合并（加上常数项）##
+###xx<-cbind(matrix(1,num,1),xx)
+
+###误差项设定为4种分布###
+ee <- matrix(c(rnorm(num, 0, 0.5)), nrow=num, ncol=1)
+## ee <- matrix(c(runif(num, -sqrt(3)/2,sqrt(3)/2)), nrow=num, ncol=1)
+ #ee <- matrix(c(sqrt(3)/4*rt(num,8)), nrow=num, ncol=1)
+ #ee <- matrix(c(1/8*rchisq(num,8)-1), nrow=num, ncol=1)
+
+###alpha+lamda,原模型设定下生成的数据是yy1
+yy1<-xx%*%beta1+zonghe1+ee
+
+####变系数设定,新模型设定下生成的数据是yy2(截距项加入了malpha0)
+yy2<-xx%*%beta2+zonghe2+ee
+
+
+### 一、 普通估计
+xishu1<-cbind(xx,M1,M2)
+
+###第一种生成方式的普通估计##
+guji1<-ginv(t(xishu1)%*%xishu1)%*%t(xishu1)%*%yy1
+
+###加入可识别条件，即求和为0，在这简化为减去均值
+##chat1<-guji1[1,]
+bhat1<-guji1[1:l,]
+singhat1<-guji1[(l+1):(n+l),]
+timehat1<-guji1[(n+l+1):(n+T+l),]
+##chat1<-chat1+mean(singhat1)+mean(timehat1)
+##singhat1<-singhat1-mean(singhat1)
+##timehat1<-timehat1-mean(timehat1)
+
+##C和beta的估计值
+##chat1  和  bhat1
+
+###综合影响的估计值
+zonghehat1<-matrix(0,num,1)
+for (p in 1:n){
+	for (q in 1:T){
+		zonghehat1[(p-1)*T+q]=singhat1[p]+timehat1[q]
+	}
+}
+	
+##第二种生成方式的普通估计
+guji2<-ginv(t(xishu1)%*%xishu1)%*%t(xishu1)%*%yy2
+
+###加入可识别条件，即求和为0，在这简化为减去均值
+##chat2<-guji2[1,]
+bhat2<-guji2[1:l,]
+singhat2<-guji2[(l+1):(n+l),]
+timehat2<-guji2[(n+l+1):(n+T+l),]
+##chat2<-chat2+mean(singhat2)+mean(timehat2)
+##singhat2<-singhat2-mean(singhat2)
+##timehat2<-timehat2-mean(timehat2)
+
+##C和beta的估计值
+##chat2  和  bhat2
+
+###综合影响的估计值
+zonghehat2<-matrix(0,num,1)
+for (p in 1:n){
+	for (q in 1:T){
+		zonghehat2[(p-1)*T+q]=singhat2[p]+timehat2[q]
+	}
+}
+
+
+####  二、GWR估计方法  两组数据的theta值不同##
+
+
+
+
+###第一种生成方式生成的GWR估计，即xx,yy1
+betahat1<-ginv(t(xx)%*%t(diag(num)-L1)%*%(diag(num)-L1)%*%xx)%*%t(xx)%*%t(diag(num)-L1)%*%(diag(num)-L1)%*%yy1
+
+###把每个alpha的值记录下，要求均值，
+
+
+alphahat1<-LL1%*%(yy1-xx%*%betahat1)
+alpha0hat1<-matrix(0,n,1)
+alpha1hat1<-matrix(0,n,1)
+alpha2hat1<-matrix(0,n,1)
+aa=0
+bb=0
+cc=0
+for (i in 1:(3*n)){
+	if(i%%3==1){
+		aa=aa+1
+		alpha0hat1[aa]=alphahat1[i]
+	}
+	if(i%%3==2){
+		bb=bb+1
+		alpha1hat1[bb]=alphahat1[i]
+	}
+	if(i%%3==0){
+		cc=cc+1
+		alpha2hat1[cc]=alphahat1[i]
+	}
+}
+
+#cc1<-betahat1[1,]
+bb1<-betahat1[1:l,]
+#cc1<-cc1+mean(alpha0hat1)
+#alpha0hat1<-alpha0hat1-mean(alpha0hat1)
+comhat1<-cbind(alpha0hat1,alpha1hat1,alpha2hat1)
+
+##综合效应的估计
+guji1<-as.matrix(sapply(t(comhat1%*%t(P)),unlist))
+
+
+####第二种生成方式生成的GWR估计,即xx，yy2
+betahat2<-ginv(t(xx)%*%t(diag(num)-L2)%*%(diag(num)-L2)%*%xx)%*%t(xx)%*%t(diag(num)-L2)%*%(diag(num)-L2)%*%yy2
+alphahat2<-LL2%*%(yy2-xx%*%betahat2)
+alpha0hat2<-matrix(0,n,1)
+alpha1hat2<-matrix(0,n,1)
+alpha2hat2<-matrix(0,n,1)
+aa=0
+bb=0
+cc=0
+
+
+####将三个变系数函数的估计值分开
+for (i in 1:(3*n)){
+	if(i%%3==1){
+		aa=aa+1
+		alpha0hat2[aa]=alphahat2[i]
+	}
+	if(i%%3==2){
+		bb=bb+1
+		alpha1hat2[bb]=alphahat2[i]
+	}
+	if(i%%3==0){
+		cc=cc+1
+		alpha2hat2[cc]=alphahat2[i]
+	}
+}
+
+##cc2<-betahat2[1,]
+bb2<-betahat2[1:l,]
+##cc2<-cc2+mean(alpha0hat2)
+#alpha0hat2<-alpha0hat2-mean(alpha0hat2)
+comhat2<-cbind(alpha0hat2,alpha1hat2,alpha2hat2)
+guji2<-as.matrix(sapply(t(comhat2%*%t(P)),unlist))
+
+###结果整理
+
+##第一种数据生成方式，两种估计方法的结果
+
+#beta11[1,jishu]<-chat1
+for (i in 1:l){
+	beta11[i,jishu]<-bhat1[i]
+}
+comb11[,jishu]=zonghehat1
+
+
+#beta12[1,jishu]<-cc1
+for (i in 1:l){
+	beta12[i,jishu]<-bb1[i]
+}
+comb12[,jishu]=guji1
+
+
+###第二种数据生成方式，两种估计的结果
+#beta21[1,jishu]<-chat2
+for (i in 1:l){
+	beta21[i,jishu]<-bhat2[i]
+}
+comb21[,jishu]=zonghehat2
+
+#beta22[1,jishu]<-cc2
+for (i in 1:l){
+	beta22[i,jishu]<-bb2[i]
+}
+comb22[,jishu]=guji2
+}
+
+
+####结果展示
+
+##第一种数据生成方式
+####比较均值，标准差，mse
+mean11<-rbind(as.matrix(rowMeans(beta11)),as.matrix(rowMeans(comb11)))
+sd11<-rbind(as.matrix(apply(beta11,1,sd)),as.matrix(apply(comb11,1,sd)))
+mean12<-rbind(as.matrix(rowMeans(beta12)),as.matrix(rowMeans(comb12)))
+sd12<-rbind(as.matrix(apply(beta12,1,sd)),as.matrix(apply(comb12,1,sd)))
+
+
+###综合效应的mse
+mse11<-matrix(0,num,1)
+mse12<-matrix(0,num,1)
+
+for (i in 1:num){
+	sum1=0
+	sum2=0
+	for (j in (1:k)){
+	sum1=sum1+(comb11[i,j]-zonghe1[i])*(comb11[i,j]-zonghe1[i])
+	sum2=sum2+(comb12[i,j]-zonghe1[i])*(comb12[i,j]-zonghe1[i])
+	}
+	mse11[i]=sum1/k
+	mse12[i]=sum2/k
+}
+
+####截距项与系数的mse
+
+sum11<-matrix(0,l,k)
+sum12<-matrix(0,l,k)
+for (i in 1:k){
+	sum11[,i]=(beta11[,i]-beta1)*(beta11[,i]-beta1)
+	sum12[,i]=(beta12[,i]-beta1)*(beta12[,i]-beta1)
+}
+
+###把mse合并起来
+mse11<-rbind(as.matrix(rowSums(sum11))/k,mse11)
+mse12<-rbind(as.matrix(rowSums(sum12))/k,mse12)
+result1<-cbind(mean11,sd11,mse11,mean12,sd12,mse12)
+true1<-rbind(beta1,zonghe1)
+
+
+
+
+
+###第二种数据生成方式两种估计的结果
+mean21<-rbind(as.matrix(rowMeans(beta21)),as.matrix(rowMeans(comb21)))
+sd21<-rbind(as.matrix(apply(beta21,1,sd)),as.matrix(apply(comb21,1,sd)))
+mean22<-rbind(as.matrix(rowMeans(beta22)),as.matrix(rowMeans(comb22)))
+sd22<-rbind(as.matrix(apply(beta22,1,sd)),as.matrix(apply(comb22,1,sd)))
+
+
+###综合效应的mse
+mse21<-matrix(0,num,1)
+mse22<-matrix(0,num,1)
+
+for (i in 1:num){
+	sum1=0
+	sum2=0
+	for (j in (1:k)){
+	sum1=sum1+(comb21[i,j]-zonghe2[i])*(comb21[i,j]-zonghe2[i])
+	sum2=sum2+(comb22[i,j]-zonghe2[i])*(comb22[i,j]-zonghe2[i])
+	}
+	mse21[i]=sum1/k
+	mse22[i]=sum2/k
+}
+
+####截距项与系数的mse
+
+sum21<-matrix(0,l,k)
+sum22<-matrix(0,l,k)
+for (i in 1:k){
+	sum21[,i]=(beta21[,i]-beta2)*(beta21[,i]-beta2)
+	sum22[,i]=(beta22[,i]-beta2)*(beta22[,i]-beta2)
+}
+
+###把mse合并起来
+mse21<-rbind(as.matrix(rowSums(sum21))/k,mse21)
+mse22<-rbind(as.matrix(rowSums(sum22))/k,mse22)
+result2<-cbind(mean21,sd21,mse21,mean22,sd22,mse22)
+true2<-rbind(beta2,zonghe2)
+
+write.csv(cbind(true1,result1),"1.csv")
+write.csv(cbind(true2,result2),"2.csv")

@@ -1,0 +1,23 @@
+library(sp)
+library(maptools)
+library(mapproj)
+library(ggplot2)
+library(plyr)
+##将矢量地图读入
+
+
+x=readShapePoly('bou2_4p.shp')
+mymap=ggplot(data = fortify(x))+geom_polygon(aes(x=long,y=lat,group=id),colour="black",fill=NA)+theme_grey()
+print(mymap+coord_map())
+
+
+ch = fortify(x,'NAME')
+#拿出各省的编码数据，从"GBK" 格式转换
+ch = transform(ch,id=iconv(id,from = 'GBK'),group = iconv(group, from = 'GBK'))
+names(ch)[1:2] = c("x","y")
+#省份去重且排序
+mychdat = data.frame(id = unique(sort(ch$id)))
+ray=read.xlsx('C:/Users/freedom/Desktop/最后一哆嗦/数据/失业率/数据.xlsx',1,encoding="UTF-8")
+china_map1 <- fortify(x)
+xs <- data.frame(x,id=seq(0:924)-1)
+china_map_data <- join(china_map1, xs, type = "full")

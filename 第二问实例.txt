@@ -1,0 +1,135 @@
+library(xlsx)
+library(spdep)
+library(MASS) ###求逆的时候用
+
+n=31  #省份
+t=15  #年份
+num=n*t
+#long lat  读取经纬度
+location<-read.xlsx("经纬度.xlsx",sheetName="2",header=T,encoding='UTF-8')
+location=apply(location,2,as.numeric)
+lat<-location[,2]
+long<-location[,3]
+##将经纬度信息重复，当作有很多个地方，2000年的北京与2001年的北京不是同一个地方，只是经纬度为0
+varlat<-kronecker(lat,matrix(1,t,1))
+varlong<-kronecker(long,matrix(1,t,1))
+theta=1
+##权重矩阵
+weight <- matrix(0, nrow=num, ncol=num)
+for (i in 1:num){
+    for(j in 1:num){
+        weight[i,j] = 1/sqrt(2*pi)*exp(-0.5*theta^2*((varlong[i]-varlong[j])^2+(varlat[i]-varlat[j])^2))
+    }
+}
+M1<-matrix(0,num,n)
+M2<-matrix(0,num,t)
+for (i in 1:n){
+	for (j in 1:t){
+	M1[(i-1)*t+j,i]=1
+}
+}
+for (i in 1:num){
+	if(i%%t >0){
+	M2[i,i%%t]=1}
+	if(i%%t ==0){
+	M2[i,t]=1
+}
+}
+
+P<-matrix(0,t,3)
+for (i in 1:t){
+	P[i,1]=1
+	P[i,2]=i
+	P[i,3]=i*i
+}
+
+Q<-matrix(0,num,3)
+for (i in 1:n){
+	for (j in 1:t){
+		Q[(i-1)*t+j,1]=1
+		Q[(i-1)*t+j,2]=j
+		Q[(i-1)*t+j,3]=j*j
+	}
+}
+###前面的大矩阵
+L<-P%*%ginv(t(Q)%*%diag(weight[1,])%*%Q)%*%t(Q)%*%diag(weight[1,])
+for (i in 2:n){
+	L<-rbind(L,P%*%ginv(t(Q)%*%diag(weight[(i-1)*t+1,])%*%Q)%*%t(Q)%*%diag(weight[(i-1)*t+1,]))
+	
+}
+###计算后半个部分
+LL<-ginv(t(Q)%*%diag(weight[1,])%*%Q)%*%t(Q)%*%diag(weight[1,])
+for (i in 2:n){
+	LL<-rbind(LL,ginv(t(Q)%*%diag(weight[(i-1)*t+1,])%*%Q)%*%t(Q)%*%diag(weight[(i-1)*t+1,]))
+	
+}
+##读取数据
+y<-read.xlsx("数据.xlsx",sheetName="pi",header=T,encoding='UTF-8')
+y=t(apply(y,2,as.numeric))
+pre1<-read.xlsx("数据.xlsx",sheetName="pre1",header=T,encoding='UTF-8')
+pre1=t(apply(pre1,2,as.numeric))
+pre2<-read.xlsx("数据.xlsx",sheetName="pre2",header=T,encoding='UTF-8')
+pre2=t(apply(pre2,2,as.numeric))
+tem1<-read.xlsx("数据.xlsx",sheetName="tem1",header=T,encoding='UTF-8')
+tem1<-t(apply(tem1,2,as.numeric))
+tem2<-read.xlsx("数据.xlsx",sheetName="tem2",header=T,encoding='UTF-8')
+tem2<-t(apply(tem2,2,as.numeric))
+mech<-read.xlsx("数据.xlsx",sheetName="mech",header=T,encoding='UTF-8')
+mech<-t(apply(mech,2,as.numeric))
+effi<-read.xlsx("数据.xlsx",sheetName="effi",header=T,encoding='UTF-8')
+effi<-t(apply(effi,2,as.numeric))
+den<-read.xlsx("数据.xlsx",sheetName="den",header=T,encoding='UTF-8')
+den<-t(apply(den,2,as.numeric))
+##整理数据，行的转置为列的，再按省份竖成一列
+y<-sapply(y,unlist)
+dim(y)<-c(num,1)
+pre1<-sapply(pre1,unlist)
+dim(pre1)<-c(num,1)
+pre2<-sapply(pre2,unlist)
+dim(pre2)<-c(num,1)
+tem1<-sapply(tem1,unlist)
+dim(tem1)<-c(num,1)
+tem2<-sapply(tem2,unlist)
+dim(tem2)<-c(num,1)
+mech<-sapply(mech,unlist)
+dim(mech)<-c(num,1)
+effi<-sapply(effi,unlist)
+dim(effi)<-c(num,1)
+den<-sapply(den,unlist)
+dim(den)<-c(num,1)
+xx<-cbind(pre1,tem1,mech,effi,den)
+##普通估计
+xishu1<-cbind(xx,M1,M2)
+guji1<-ginv(t(xishu1)%*%xishu1)%*%t(xishu1)%*%y
+bhat1<-guji1[1:4,]
+
+##GWR估计
+betahat2<-ginv(t(xx)%*%t(diag(num)-L)%*%(diag(num)-L)%*%xx)%*%t(xx)%*%t(diag(num)-L)%*%(diag(num)-L)%*%y
+alphahat2<-LL%*%(y-xx%*%betahat2)
+alpha0hat2<-matrix(0,n,1)
+alpha1hat2<-matrix(0,n,1)
+alpha2hat2<-matrix(0,n,1)
+aa=0
+bb=0
+cc=0
+####将三个变系数函数的估计值分开
+for (i in 1:(3*n)){
+	if(i%%3==1){
+		aa=aa+1
+		alpha0hat2[aa]=alphahat2[i]
+	}
+	if(i%%3==2){
+		bb=bb+1
+		alpha1hat2[bb]=alphahat2[i]
+	}
+	if(i%%3==0){
+		cc=cc+1
+		alpha2hat2[cc]=alphahat2[i]
+	}
+}
+comhat2<-cbind(alpha0hat2,alpha1hat2,alpha2hat2)
+guji2<-as.matrix(sapply(t(comhat2%*%t(P)),unlist))
+
+##计算残差
+cancha1<-t(xishu1%*%guji1-y)%*%(xishu1%*%guji1-y)
+cancha2<-t(xx%*%betahat2+guji2-y)%*%(xx%*%betahat2+guji2-y)
